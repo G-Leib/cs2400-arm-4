@@ -35,9 +35,16 @@ case			FILL		4
 berr			FILL		4
 corr			FILL		4
 			
-hencode
+main
 			ADR		r0, data			;load address of data
 			LDR		r0, [r0]			;load data
+			BL		hencode
+			;*********simulated transmittion*********
+			ADR		r1, recv			;load address of received data
+			LDR		r1, [r1]			;load received data
+			BL		hdecode
+			END
+hencode
 			;insert	space for parity bits
 			AND		r1, r0, #0b1111111	;d5-d11
 			LSR		r2, r0, #7
@@ -53,40 +60,46 @@ hencode
 			MOV		r3, r1			;make copy of coded data
 			MOV		r4, #15			;bit limit
 			MOV		r6, #1			;outer loop counter
-			STMia	sp, {r0-r4, r6}
+			STMia	sp, {r0-r4, r6}	;store counters on stack
 outer_loop
-			LSL		r3, r3, #1
-			ADD		r0, r0, #1
-			CMP		r0, r2
-			Blt		xor_loop
-			MOV		r0, #0
-			B		skip_loop
+			LSL		r3, r3, #1		;shift data copy
+			ADD		r0, r0, #1		;increment inner counter
+			CMP		r0, r2			;check if counter is greater than parity value
+			Blt		xor_loop			;branch to xor if less than parity value
+			MOV		r0, #0			;otherwise, reset counter and...
+			B		skip_loop			;branch to skip loop
 xor_loop
-			EOR		r1, r1, r3
-			ADD		r0, r0, #1
-			LSL		r3, r3, #1
-			ADD		r6, r6, #1
-			CMP		r0, r2
-			Blt		xor_loop
-			MOV		r0, #0
+			EOR		r1, r1, r3		;xor data with shifted data (changes to 1 for total odd 1s and 0 for total even 0s)
+			ADD		r0, r0, #1		;increment inner loop counter
+			LSL		r3, r3, #1		;shift data copy
+			ADD		r6, r6, #1		;increment outer loop (number of "parity bit definers" checked)
+			CMP		r0, r2			;check if counter is greater than parity value
+			Blt		xor_loop			;if less than parity value continue checking/xor
+			MOV		r0, #0			;otherwise reset inner counter and proceed to skips
 skip_loop
-			CMP		r6, #8
+			CMP		r6, #8			;if all "parity bit definers" have been checked, move on to assigning parity bit
 			Beq		par_bit_loc
-			LSL		r3, r3, #1
-			ADD		r0, r0, #1
-			CMP		r0, r2
-			Blt		skip_loop
-			MOV		r0, #0
-			B		xor_loop
+			LSL		r3, r3, #1		;shift data copy
+			ADD		r0, r0, #1		;increment inner loop
+			CMP		r0, r2			;check if skip values are exceeded
+			Blt		skip_loop			;if not continue skip loop
+			MOV		r0, #0			;otherwise reset inner loop counter
+			B		xor_loop			;proceed to xor loop
 par_bit_loc
-			MOV		r6, #1
-			SUB		r5, r4, r2
-			LSL		r5, r6, r5
-			AND		r5, r1, r5
-			LDMia	sp, {r0-r4, r6}
-			ORR		r1, r1, r5
-			LSL		r2, r2, #1
-			STMia	sp, {r0-r4, r6}
-			CMP		r2, #8
+			MOV		r6, #1			;reset outer loop counter
+			SUB		r5, r4, r2		;subtract parity bit value from bit limit
+			LSL		r5, r6, r5		;shift #1 to parity bit placement to create mask
+			AND		r5, r1, r5		;use mask to save parity bit
+			LDMia	sp, {r0-r4, r6}	;retrieve stored counter values
+			ORR		r1, r1, r5		;use "or" mask to insert parity bit
+			LSL		r2, r2, #1		;double parity bit value to prep for next parity bit
+			STMia	sp, {r0-r4, r6}	;store updated counter values
+			CMP		r2, #8			;check if all parity bits have been inserted
 			Ble		outer_loop
-			END
+			MOV		r0, r1			;write encoded data back into r0 (same as received)
+			MOV		lr, pc			;resume main
+			
+			;**********************************************************
+			
+hdecode
+			
